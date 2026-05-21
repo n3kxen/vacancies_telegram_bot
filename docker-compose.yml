@@ -1,0 +1,7 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped      # auto-restart on crash or server reboot
+    env_file: .env               # load secrets from .env file
+    volumes:
+      - ./data:/app/data         # persist vacancies.json and seen.json outside the container
