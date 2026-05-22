@@ -52,14 +52,12 @@ def format_vacancy(v, index: int | None = None) -> str:
     """Format a single vacancy as a Telegram message (HTML)."""
     header = f"<b>#{index}  {v.title}</b>" if index else f"<b>{v.title}</b>"
     salary = f"\n💰 <i>{v.salary}</i>" if v.salary else ""
-    desc = v.description[:300].strip() + "…" if v.description else ""
 
     return (
         f"{header}\n"
         f"🏢 {v.company}\n"
         f"{salary}\n"
         f"🔗 <a href='{v.url}'>Open vacancy</a>\n\n"
-        f"{desc}"
     )
 
 
