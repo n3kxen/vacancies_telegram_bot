@@ -8,6 +8,8 @@ import os
 import config
 from models import Vacancy
 
+from datetime import datetime
+
 
 # ── Vacancy store (vacancies.json) ─────────────
 
@@ -15,7 +17,10 @@ def load_all() -> list[Vacancy]:
     """Load all saved vacancies from JSON."""
     try:
         with open(config.OUTPUT_JSON, encoding="utf-8") as f:
-            return [Vacancy(**d) for d in json.load(f)]
+            content = f.read().strip()
+            if not content:
+                return[]
+            return [Vacancy(**d) for d in json.loads(content)]
     except FileNotFoundError:
         return []
 
@@ -41,7 +46,10 @@ def load_seen() -> set[str]:
     """Load the set of already-notified vacancy URLs."""
     try:
         with open(config.SEEN_FILE, encoding="utf-8") as f:
-            return set(json.load(f))
+            content = f.read().strip()
+            if not content:
+                return set()
+            return set(json.loads(content))
     except FileNotFoundError:
         return set()
 
@@ -63,3 +71,38 @@ def mark_seen(vacancies: list[Vacancy]) -> None:
     seen = load_seen()
     seen.update(v.url for v in vacancies)
     save_seen(seen)
+
+
+def remove_expired(vacancies: list[Vacancy]) -> list[Vacancy]:
+    """Remove vacancies whose expiry date has passed."""
+    today = datetime.today()
+    active = []
+
+    for v in vacancies:
+        if not v.expires:
+            active.append(v)
+            continue
+
+        # Parse date from "Beidzas: 22.06.2026"
+        try:
+            date_str = v.expires.split(": ")[-1].strip()
+            expiry = datetime.strptime(date_str, "%d.%m.%Y")
+            if expiry >= today:
+                active.append(v)
+            else:
+                print(f"  [expired] {v.title} — {v.expires}")
+        except ValueError:
+            active.append(v)  # if date can't be parsed, keep it
+
+    return active
+
+def clean_expired() -> int:
+    """Remove expired vacancies from the store. Returns count of removed."""
+    all_v = load_all()
+    active = remove_expired(all_v)
+    removed = len(all_v) - len(active)
+    if removed > 0:
+        save_all(active)
+        print(f"  Removed {removed} expired vacancies")
+    return removed
+

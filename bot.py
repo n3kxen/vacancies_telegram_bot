@@ -19,10 +19,13 @@ import logging
 import asyncio
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
     ContextTypes,
 )
 
@@ -52,11 +55,13 @@ def format_vacancy(v, index: int | None = None) -> str:
     """Format a single vacancy as a Telegram message (HTML)."""
     header = f"<b>#{index}  {v.title}</b>" if index else f"<b>{v.title}</b>"
     salary = f"\n💰 <i>{v.salary}</i>" if v.salary else ""
+    expires = f"\n⏳ <b>Expires:</b> {v.expires}"   if v.expires  else ""
 
     return (
         f"{header}\n"
         f"🏢 {v.company}\n"
         f"{salary}\n"
+        f"{expires}\n"
         f"🔗 <a href='{v.url}'>Open vacancy</a>\n\n"
     )
 
@@ -77,43 +82,82 @@ def build_pagination(page: int, total_pages: int) -> InlineKeyboardMarkup:
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     cats = ", ".join(config.CATEGORIES) if config.CATEGORIES else "all categories"
-    interval_min = config.CHECK_INTERVAL // 60
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📋 Vacancies", callback_data="action:vacancies"),
+            InlineKeyboardButton("🔍 Check now", callback_data="action:check"),
+        ],
+        [
+            InlineKeyboardButton("📊 Stats", callback_data="action:stats"),
+        ],
+    ])
 
     await update.message.reply_text(
         f"👋 <b>CV.lv Vacancy Bot</b>\n\n"
         f"📂 Category: <code>{cats}</code>\n"
-        f"🕐 Checks every <b>{interval_min} min</b>\n\n"
-        f"Commands:\n"
-        f"  /vacancies — browse saved vacancies\n"
-        f"  /check     — check for new vacancies now\n"
-        f"  /stats     — show counts",
+        f"🕐 Daily check at: <b>{config.CHECK_TIME.strftime('%H:%M')}</b>",
         parse_mode="HTML",
+        reply_markup=keyboard,
     )
 
 
 async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     all_v = storage.load_all()
     seen  = storage.load_seen()
-    await update.message.reply_text(
-        f"📊 <b>Stats</b>\n\n"
-        f"💾 Saved vacancies: <b>{len(all_v)}</b>\n"
-        f"✅ Already notified: <b>{len(seen)}</b>",
-        parse_mode="HTML",
+
+    keyboard = InlineKeyboardMarkup(
+        [["📋 Vacancies", "🔍 Check now"], ["📊 Stats"]],
+        inline_keyboard=True,
     )
+
+    await update.message.reply_text(
+        f"👋 <b>CV.lv Vacancy Bot</b>\n\n"
+        f"📂 Category: <code>{cats}</code>\n"
+        f"🕐 Checks every <b>{interval_min} min</b>",
+        parse_mode="HTML",
+        reply_markup=keyboard,
+    )
+
+
+async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "action:vacancies":
+        await cmd_vacancies(update, ctx)
+    elif query.data == "action:check":
+        msg = await query.message.reply_text("🔍 Checking for new vacancies…")
+        count = await _do_check(ctx)
+        if count:
+            await msg.edit_text(f"✅ Found and sent <b>{count}</b> new vacancies!", parse_mode="HTML")
+        else:
+            await msg.edit_text("😴 No new vacancies found.")
+    elif query.data == "action:stats":
+        all_v = storage.load_all()
+        seen  = storage.load_seen()
+        await query.message.reply_text(
+            f"📊 <b>Stats</b>\n\n"
+            f"💾 Saved vacancies: <b>{len(all_v)}</b>\n"
+            f"✅ Already notified: <b>{len(seen)}</b>",
+            parse_mode="HTML",
+        )
 
 
 async def cmd_vacancies(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the first page of saved vacancies."""
     vacancies = storage.load_all()
 
+    message = update.message or update.callback_query.message
+
     if not vacancies:
-        await update.message.reply_text(
+        await message.reply_text(
             "No saved vacancies yet.\nTry /check to fetch them now."
         )
         return
 
     total_pages = (len(vacancies) + PAGE_SIZE - 1) // PAGE_SIZE
-    await _send_vacancy_page(update.message.reply_text, vacancies, page=0, total_pages=total_pages)
+    await _send_vacancy_page(message.reply_text, vacancies, page=0, total_pages=total_pages)
 
 
 async def cmd_check(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -150,16 +194,17 @@ async def on_page_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def _send_vacancy_page(send_fn, vacancies, page: int, total_pages: int) -> None:
-    """Render one page of vacancies and send it via send_fn."""
     start = page * PAGE_SIZE
     chunk = vacancies[start : start + PAGE_SIZE]
 
     lines = [f"📋 <b>Vacancies</b>  (page {page + 1}/{total_pages})\n"]
     for i, v in enumerate(chunk, start=start + 1):
-        salary = f" · 💰 {v.salary}" if v.salary else ""
+        salary  = f" · 💰 {v.salary}"   if v.salary  else ""
+        expires = f"\n   ⏳ {v.expires}" if v.expires else ""
+
         lines.append(
             f"<b>{i}. {v.title}</b>\n"
-            f"   🏢 {v.company} {salary}\n"
+            f"   🏢 {v.company} · {salary}{expires}\n"
             f"   🔗 <a href='{v.url}'>Open</a>"
         )
 
@@ -168,7 +213,6 @@ async def _send_vacancy_page(send_fn, vacancies, page: int, total_pages: int) ->
 
     await send_fn(text, parse_mode="HTML", reply_markup=keyboard,
                   disable_web_page_preview=True)
-
 
 # ──────────────────────────────────────────────
 # CORE: CHECK & NOTIFY
@@ -184,6 +228,11 @@ async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> int:
     # Run blocking scraper in a thread so the event loop stays free
     loop = asyncio.get_event_loop()
     vacancies = await loop.run_in_executor(None, scraper.run)
+
+    # Clean expired vacancies from the store   ← добавь эти две строки
+    removed = storage.clean_expired()
+    if removed:
+        log.info(f"Removed {removed} expired vacancies")
 
     if not vacancies:
         log.info("No vacancies returned by scraper.")
@@ -215,8 +264,26 @@ async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def scheduled_check(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Job called by the scheduler every CHECK_INTERVAL seconds."""
-    await _do_check(ctx)
+    """Job called by the scheduler at a specific time every day."""
+    count = await _do_check(ctx)
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 View vacancies", callback_data="action:vacancies")]
+    ])
+
+    if count:
+        await ctx.bot.send_message(
+            chat_id=config.TELEGRAM_CHAT_ID,
+            text=f"✅ Check complete — found <b>{count}</b> new vacancies!",
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+    else:
+        await ctx.bot.send_message(
+            chat_id=config.TELEGRAM_CHAT_ID,
+            text="😴 Check complete — no new vacancies found.",
+            reply_markup=keyboard,
+        )
 
 
 # ──────────────────────────────────────────────
@@ -224,14 +291,11 @@ async def scheduled_check(ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # ──────────────────────────────────────────────
 
 async def on_startup(app: Application) -> None:
-    """Schedule the periodic vacancy check after the bot starts."""
-    app.job_queue.run_repeating(
+    app.job_queue.run_daily(
         scheduled_check,
-        interval=config.CHECK_INTERVAL,
-        first=10,  # first check 10 seconds after start
+        time=config.CHECK_TIME,
     )
-    log.info(f"Scheduler started. Interval: {config.CHECK_INTERVAL}s")
-
+    log.info(f"Scheduler started. Daily check at {config.CHECK_TIME}")
 
 def main() -> None:
     if config.TELEGRAM_TOKEN == "YOUR_BOT_TOKEN":
@@ -250,6 +314,7 @@ def main() -> None:
     app.add_handler(CommandHandler("check",      cmd_check))
     app.add_handler(CommandHandler("stats",      cmd_stats))
     app.add_handler(CallbackQueryHandler(on_page_button, pattern=r"^page:\d+$"))
+    app.add_handler(CallbackQueryHandler(on_button, pattern=r"^action:"))
 
     log.info("Bot started.")
     app.run_polling(drop_pending_updates=True)

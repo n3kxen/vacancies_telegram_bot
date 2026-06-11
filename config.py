@@ -2,7 +2,8 @@
 # config.py — all settings
 # Edit only this file to customize the bot
 # ──────────────────────────────────────────────
-
+from datetime import time as t
+import pytz
 import os
 
 # ── Telegram ───────────────────────────────────
@@ -10,9 +11,9 @@ import os
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-# How often to check for new vacancies (in seconds)
-# 18000 = every 300 minutes or 5 hours
-CHECK_INTERVAL = 18000
+# Time zone and daily check time
+TIMEZONE   = pytz.timezone("Europe/Riga")
+CHECK_TIME = t(hour=20, minute=0, tzinfo=TIMEZONE)
 
 # ── Scraper ────────────────────────────────────
 # Categories to search. Empty list = all vacancies.
@@ -61,11 +62,3 @@ CARD_SELECTORS = [
     "article",
 ]
 
-DESCRIPTION_SELECTORS = [
-    "[class*='description']",
-    "[class*='Description']",
-    "[class*='vacancy-body']",
-    "[class*='job-body']",
-    "main article",
-    "main",
-]

@@ -53,11 +53,12 @@ def parse_card(card) -> dict:
     )
     company_tag  = card.select_one("[data-testid*='vacancy-item-link-employer']")
     salary_tag   = card.select_one("[class*='salary']")
-
+    expires_tag = card.select_one(".vacancy-item__expiry")
     return {
         "title":    get_text(title_tag),
         "company":  get_text(company_tag),
         "salary":   get_text(salary_tag),
+        "expires":  get_text(expires_tag),
         "url":      href,
     }
 
@@ -80,16 +81,6 @@ def parse_vacancy_list(html: str) -> list[dict]:
     return [parse_card(card) for card in cards]
 
 
-def parse_vacancy_detail(html: str) -> str:
-    """Extract the description text from an individual vacancy page."""
-    soup = BeautifulSoup(html, "html.parser")
-
-    for selector in config.DESCRIPTION_SELECTORS:
-        block = soup.select_one(selector)
-        if block:
-            return get_text(block)
-
-    return "[Description not found]"
 
 
 # ──────────────────────────────────────────────
@@ -132,12 +123,6 @@ def scrape_simple() -> list[Vacancy]:
                 **{k: card[k] for k in Vacancy.__dataclass_fields__ if k in card}
             )
 
-            if card["url"]:
-                time.sleep(config.DELAY)
-                detail_html = fetch_html(card["url"])
-                if detail_html:
-                    vacancy.description = parse_vacancy_detail(detail_html)
-
             all_vacancies.append(vacancy)
             time.sleep(config.DELAY)
 
@@ -159,7 +144,6 @@ def _wait_for_cards(page) -> bool:
 def _fetch_detail_playwright(page, url: str) -> str:
     try:
         page.goto(url, wait_until="networkidle", timeout=20000)
-        page.wait_for_selector(", ".join(config.DESCRIPTION_SELECTORS), timeout=8000)
     except Exception:
         pass
     return page.content()
@@ -207,11 +191,6 @@ def scrape_playwright() -> list[Vacancy]:
                 vacancy = Vacancy(
                     **{k: card[k] for k in Vacancy.__dataclass_fields__ if k in card}
                 )
-
-                if card["url"]:
-                    time.sleep(config.DELAY)
-                    detail_html = _fetch_detail_playwright(page, card["url"])
-                    vacancy.description = parse_vacancy_detail(detail_html)
 
                 all_vacancies.append(vacancy)
                 time.sleep(config.DELAY)
