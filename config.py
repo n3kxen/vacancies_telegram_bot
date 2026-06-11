@@ -13,7 +13,7 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 # Time zone and daily check time
 TIMEZONE   = pytz.timezone("Europe/Riga")
-CHECK_TIME = t(hour=20, minute=0, tzinfo=TIMEZONE)
+CHECK_TIME = t(hour=21, minute=0, tzinfo=TIMEZONE)
 
 # ── Scraper ────────────────────────────────────
 # Categories to search. Empty list = all vacancies.
