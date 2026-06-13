@@ -32,6 +32,7 @@ from telegram.ext import (
 import config
 import scraper
 import storage
+import time as time_module
 from prometheus_client import Counter, Gauge, start_http_server
 
 # Metrics
@@ -233,27 +234,53 @@ async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> int:
     """
     checks_total.inc()
     last_check_timestamp.set(time_module.time())
+    log.info("Running vacancy check…")
 
     try:
         loop = asyncio.get_event_loop()
         vacancies = await loop.run_in_executor(None, scraper.run)
 
-        storage.clean_expired()
+        removed = storage.clean_expired()
+
+        if removed:
+            log.info(f"Removed {removed} expired vacancies")
 
         if not vacancies:
+            log.info("No vacancies returned by scraper.")
+            vacancies_stored_total.set(len(storage.load_all()))
             return 0
 
         new = storage.filter_new(vacancies)
+        log.info(f"Total scraped: {len(vacancies)}, new: {len(new)}")
+
+        if not new:
+            vacancies_stored_total.set(len(storage.load_all()))
+            return 0
+
+        storage.add_vacancies(new)
+        storage.mark_seen(new)
         vacancies_found_total.inc(len(new))
         vacancies_stored_total.set(len(storage.load_all()))
 
-        # ... остальной код
+        for v in new:
+            text = format_vacancy(v)
+            try:
+                await ctx.bot.send_message(
+                    chat_id=config.TELEGRAM_CHAT_ID,
+                    text=text,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+            except Exception as e:
+                log.error(f"Failed to send message: {e}")
 
         return len(new)
+
     except Exception as e:
         check_errors_total.inc()
         log.error(f"Check failed: {e}")
         return 0
+
 
 async def scheduled_check(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Job called by the scheduler at a specific time every day."""
@@ -291,6 +318,8 @@ async def on_startup(app: Application) -> None:
 
 def main() -> None:
     start_http_server(8000)
+    log.info("Metrics server started on :8000")
+
     if config.TELEGRAM_TOKEN == "YOUR_BOT_TOKEN":
         print("❌ Set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in config.py first!")
         return
