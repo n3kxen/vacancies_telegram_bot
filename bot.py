@@ -32,6 +32,14 @@ from telegram.ext import (
 import config
 import scraper
 import storage
+from prometheus_client import Counter, Gauge, start_http_server
+
+# Metrics
+vacancies_found_total   = Counter("vacancies_found_total", "Total new vacancies found")
+vacancies_stored_total  = Gauge("vacancies_stored_total", "Current vacancies in store")
+checks_total            = Counter("checks_total", "Total scheduled checks run")
+check_errors_total      = Counter("check_errors_total", "Total errors during checks")
+last_check_timestamp     = Gauge("last_check_timestamp", "Unix timestamp of last check")
 
 # ──────────────────────────────────────────────
 # LOGGING
@@ -223,45 +231,29 @@ async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> int:
     Scrape cv.lv, save new vacancies, send Telegram notifications.
     Returns the number of new vacancies sent.
     """
-    log.info("Running vacancy check…")
+    checks_total.inc()
+    last_check_timestamp.set(time_module.time())
 
-    # Run blocking scraper in a thread so the event loop stays free
-    loop = asyncio.get_event_loop()
-    vacancies = await loop.run_in_executor(None, scraper.run)
+    try:
+        loop = asyncio.get_event_loop()
+        vacancies = await loop.run_in_executor(None, scraper.run)
 
-    # Clean expired vacancies from the store   ← добавь эти две строки
-    removed = storage.clean_expired()
-    if removed:
-        log.info(f"Removed {removed} expired vacancies")
+        storage.clean_expired()
 
-    if not vacancies:
-        log.info("No vacancies returned by scraper.")
+        if not vacancies:
+            return 0
+
+        new = storage.filter_new(vacancies)
+        vacancies_found_total.inc(len(new))
+        vacancies_stored_total.set(len(storage.load_all()))
+
+        # ... остальной код
+
+        return len(new)
+    except Exception as e:
+        check_errors_total.inc()
+        log.error(f"Check failed: {e}")
         return 0
-
-    new = storage.filter_new(vacancies)
-    log.info(f"Total scraped: {len(vacancies)}, new: {len(new)}")
-
-    if not new:
-        return 0
-
-    # Save to store and mark as seen before sending
-    storage.add_vacancies(new)
-    storage.mark_seen(new)
-
-    for v in new:
-        text = format_vacancy(v)
-        try:
-            await ctx.bot.send_message(
-                chat_id=config.TELEGRAM_CHAT_ID,
-                text=text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-        except Exception as e:
-            log.error(f"Failed to send message: {e}")
-
-    return len(new)
-
 
 async def scheduled_check(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Job called by the scheduler at a specific time every day."""
@@ -298,6 +290,7 @@ async def on_startup(app: Application) -> None:
     log.info(f"Scheduler started. Daily check at {config.CHECK_TIME}")
 
 def main() -> None:
+    start_http_server(8000)
     if config.TELEGRAM_TOKEN == "YOUR_BOT_TOKEN":
         print("❌ Set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in config.py first!")
         return
