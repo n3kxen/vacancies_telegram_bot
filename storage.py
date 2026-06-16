@@ -42,34 +42,61 @@ def add_vacancies(new: list[Vacancy]) -> None:
 
 # ── Seen tracker (seen.json) ───────────────────
 
-def load_seen() -> set[str]:
-    """Load the set of already-notified vacancy URLs."""
+def load_seen() -> dict[str, dict]:
+    """Load the seen tracker: {url: {"last_seen": iso_str}}."""
     try:
         with open(config.SEEN_FILE, encoding="utf-8") as f:
             content = f.read().strip()
             if not content:
-                return set()
-            return set(json.loads(content))
+                return {}
+            data = json.loads(content)
+            if isinstance(data, list):
+                return {url: {"last_seen": datetime.utcnow().isoformat()} for url in data}
+            return data
     except FileNotFoundError:
-        return set()
+        return {}
 
 
-def save_seen(seen: set[str]) -> None:
-    """Persist the set of notified URLs."""
+def save_seen(seen: dict[str, dict]) -> None:
+    """Persist the seen tracker."""
     with open(config.SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(seen), f, ensure_ascii=False)
+        json.dump(seen, f, ensure_ascii=False)
+
+
+from datetime import datetime, timedelta
+
+# How many days before a previously seen vacancy can be considered "new again"
+SEEN_REFRESH_DAYS = 7
 
 
 def filter_new(vacancies: list[Vacancy]) -> list[Vacancy]:
-    """Return only vacancies that have not been notified yet."""
+    """
+    Return only vacancies that are either unseen or were last notified
+    more than SEEN_REFRESH_DAYS ago.
+    """
     seen = load_seen()
-    return [v for v in vacancies if v.url not in seen]
+    now = datetime.utcnow()
+    fresh = []
+
+    for v in vacancies:
+        entry = seen.get(v.url)
+
+        if entry is None:
+            fresh.append(v)
+            continue
+
+        last_seen = datetime.fromisoformat(entry.get("last_seen", ""))
+        if now - last_seen > timedelta(days=SEEN_REFRESH_DAYS):
+            fresh.append(v)
+
+    return fresh
 
 
 def mark_seen(vacancies: list[Vacancy]) -> None:
     """Mark a list of vacancies as notified."""
     seen = load_seen()
-    seen.update(v.url for v in vacancies)
+    for v in vacancies:
+        seen[v.url] = {"last_seen": datetime.utcnow().isoformat()}
     save_seen(seen)
 
 

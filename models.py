@@ -12,6 +12,7 @@ class Vacancy:
     salary:      str = ""   # Salary (if listed)
     expires:     str = ""   # Expiration date
     url:         str = ""   # Link to the vacancy page
+    description: str = ""   # Short description / snippet
 
     def to_dict(self) -> dict:
         return asdict(self)
