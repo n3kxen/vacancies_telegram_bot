@@ -6,6 +6,13 @@ from datetime import time as t
 import pytz
 import os
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    # python-dotenv not installed; rely on environment variables
+    pass
+
 # ── Telegram ───────────────────────────────────
 # Get token from @BotFather, chat_id from @userinfobot
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]

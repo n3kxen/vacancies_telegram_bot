@@ -3,3 +3,4 @@ requests
 beautifulsoup4
 pytz
 prometheus-client
+python-dotenv

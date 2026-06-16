@@ -115,15 +115,22 @@ async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     all_v = storage.load_all()
     seen  = storage.load_seen()
 
-    keyboard = InlineKeyboardMarkup(
-        [["📋 Vacancies", "🔍 Check now"], ["📊 Stats"]],
-        inline_keyboard=True,
-    )
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📋 Vacancies", callback_data="action:vacancies"),
+            InlineKeyboardButton("🔍 Check now", callback_data="action:check"),
+        ],
+        [
+            InlineKeyboardButton("📊 Stats", callback_data="action:stats"),
+        ],
+    ])
+
+    cats = ", ".join(config.CATEGORIES) if config.CATEGORIES else "all categories"
 
     await update.message.reply_text(
         f"👋 <b>CV.lv Vacancy Bot</b>\n\n"
         f"📂 Category: <code>{cats}</code>\n"
-        f"🕐 Checks every <b>{interval_min} min</b>",
+        f"🕐 Checks daily at: <b>{config.CHECK_TIME.strftime('%H:%M')}</b>",
         parse_mode="HTML",
         reply_markup=keyboard,
     )
