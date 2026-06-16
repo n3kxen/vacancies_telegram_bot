@@ -45,10 +45,10 @@ DELAY = 1.5
 USE_PLAYWRIGHT = False
 
 # ── Storage ────────────────────────────────────
-# File that stores all known vacancies
-OUTPUT_JSON = "vacancies.json"
-# File that tracks which vacancy URLs have already been notified
-SEEN_FILE   = "seen.json"
+# Files that store vacancies state
+DATA_DIR = "data"
+OUTPUT_JSON = f"{DATA_DIR}/vacancies.json"
+SEEN_FILE   = f"{DATA_DIR}/seen.json"
 
 # ── HTTP ───────────────────────────────────────
 HEADERS = {

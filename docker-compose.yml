@@ -5,6 +5,7 @@ services:
     env_file: .env               # load secrets from .env file
     volumes:
       - ./data:/app/data        # persist vacancies.json and seen.json outside the container
+      - ./.env:/app/.env:ro     # persist .env so tokens survive code-only pulls
     ports:
       - "8000:8000"             # expose metrics
 
