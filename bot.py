@@ -102,7 +102,11 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         ],
     ])
 
-    await update.message.reply_text(
+    target = update.message or (update.callback_query.message if update.callback_query else None)
+    if target is None:
+        return
+
+    await target.reply_text(
         f"👋 <b>CV.lv Vacancy Bot</b>\n\n"
         f"📂 Category: <code>{cats}</code>\n"
         f"🕐 Daily check at: <b>{config.CHECK_TIME.strftime('%H:%M')}</b>",
@@ -145,19 +149,42 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     elif query.data == "action:check":
         msg = await query.message.reply_text("🔍 Checking for new vacancies…")
         count = await _do_check(ctx)
+
+        reply_keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📋 View vacancies", callback_data="action:vacancies"),
+                InlineKeyboardButton("🏠 Home page", callback_data="action:start"),
+            ]
+        ])
+
         if count:
-            await msg.edit_text(f"✅ Found and sent <b>{count}</b> new vacancies!", parse_mode="HTML")
+            await msg.edit_text(f"✅ Found and sent <b>{count}</b> new vacancies!", parse_mode="HTML", reply_markup=reply_keyboard)
         else:
-            await msg.edit_text("😴 No new vacancies found.")
+            await msg.edit_text("😴 No new vacancies found.", reply_markup=reply_keyboard)
     elif query.data == "action:stats":
         all_v = storage.load_all()
         seen  = storage.load_seen()
-        await query.message.reply_text(
-            f"📊 <b>Stats</b>\n\n"
-            f"💾 Saved vacancies: <b>{len(all_v)}</b>\n"
+
+        by_company: dict[str, int] = {}
+        for v in all_v:
+            company = (getattr(v, "company", "") or "").strip()
+            if not company:
+                continue
+            by_company[company] = by_company.get(company, 0) + 1
+
+        lines = [
+            "📊 <b>Stats</b>\n",
+            f"💾 Saved vacancies: <b>{len(all_v)}</b>",
             f"✅ Already notified: <b>{len(seen)}</b>",
-            parse_mode="HTML",
-        )
+        ]
+        if by_company:
+            lines.append("🏢 <b>Open vacancies by company:</b>")
+            for company, count in sorted(by_company.items()):
+                lines.append(f"• {company}: <b>{count}</b>")
+
+        await query.message.reply_text("\n".join(lines), parse_mode="HTML")
+    elif query.data == "action:start":
+        await cmd_start(update, ctx)
 
 
 async def cmd_vacancies(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
