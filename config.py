@@ -35,7 +35,7 @@ CATEGORIES = ["INFORMATION_TECHNOLOGY"]
 LANGUAGE = "en"
 
 # How many result pages to process per check (20 vacancies per page)
-MAX_PAGES = 1
+MAX_PAGES = 3
 
 # Delay between requests in seconds (below 1.0 risks getting banned)
 DELAY = 1.5
