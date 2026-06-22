@@ -60,21 +60,6 @@ PAGE_SIZE = 5
 # HELPERS
 # ──────────────────────────────────────────────
 
-def format_vacancy(v, index: int | None = None) -> str:
-    """Format a single vacancy as a Telegram message (HTML)."""
-    header = f"<b>#{index}  {v.title}</b>" if index else f"<b>{v.title}</b>"
-    salary = f"\n💰 <i>{v.salary}</i>" if v.salary else ""
-    expires = f"\n⏳ <b>Expires:</b> {v.expires}"   if v.expires  else ""
-
-    return (
-        f"{header}\n"
-        f"🏢 {v.company}\n"
-        f"{salary}\n"
-        f"{expires}\n"
-        f"🔗 <a href='{v.url}'>Open vacancy</a>\n\n"
-    )
-
-
 def build_pagination(page: int, total_pages: int) -> InlineKeyboardMarkup:
     """Build Prev / Next navigation buttons."""
     buttons = []
@@ -152,13 +137,14 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
         reply_keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("📋 View vacancies", callback_data="action:vacancies"),
+                InlineKeyboardButton("📋 Vacancies", callback_data="action:vacancies"),
+                InlineKeyboardButton("📊 Stats", callback_data="action:stats"),
                 InlineKeyboardButton("🏠 Home page", callback_data="action:start"),
             ]
         ])
 
         if count:
-            await msg.edit_text(f"✅ Found and sent <b>{count}</b> new vacancies!", parse_mode="HTML", reply_markup=reply_keyboard)
+            await msg.edit_text(f"✅ Found <b>{count}</b> new vacancies!", parse_mode="HTML", reply_markup=reply_keyboard)
         else:
             await msg.edit_text("😴 No new vacancies found.", reply_markup=reply_keyboard)
     elif query.data == "action:stats":
@@ -189,7 +175,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_vacancies(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the first page of saved vacancies."""
-    vacancies = storage.load_all()
+    vacancies = list(reversed(storage.load_all()))
 
     message = update.message or update.callback_query.message
 
@@ -208,10 +194,18 @@ async def cmd_check(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     msg = await update.message.reply_text("🔍 Checking for new vacancies…")
     count = await _do_check(ctx)
 
+    reply_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📋 Vacancies", callback_data="action:vacancies"),
+            InlineKeyboardButton("📊 Stats", callback_data="action:stats"),
+            InlineKeyboardButton("🏠 Home page", callback_data="action:start"),
+        ]
+    ])
+
     if count:
-        await msg.edit_text(f"✅ Found and sent <b>{count}</b> new vacancies!", parse_mode="HTML")
+        await msg.edit_text(f"✅ Found <b>{count}</b> new vacancies!", parse_mode="HTML", reply_markup=reply_keyboard)
     else:
-        await msg.edit_text("😴 No new vacancies found.")
+        await msg.edit_text("😴 No new vacancies found.", reply_markup=reply_keyboard)
 
 
 # ──────────────────────────────────────────────
@@ -224,7 +218,7 @@ async def on_page_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     await query.answer()
 
     page = int(query.data.split(":")[1])
-    vacancies = storage.load_all()
+    vacancies = list(reversed(storage.load_all()))
     total_pages = (len(vacancies) + PAGE_SIZE - 1) // PAGE_SIZE
 
     # Replace the existing message instead of sending a new one
@@ -263,8 +257,8 @@ async def _send_vacancy_page(send_fn, vacancies, page: int, total_pages: int) ->
 
 async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Scrape cv.lv, save new vacancies, send Telegram notifications.
-    Returns the number of new vacancies sent.
+    Scrape cv.lv and save new vacancies.
+    Returns the number of new vacancies found.
     """
     checks_total.inc()
     last_check_timestamp.set(time_module.time())
@@ -296,18 +290,6 @@ async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> int:
         vacancies_found_total.inc(len(new))
         vacancies_stored_total.set(len(storage.load_all()))
 
-        for v in new:
-            text = format_vacancy(v)
-            try:
-                await ctx.bot.send_message(
-                    chat_id=config.TELEGRAM_CHAT_ID,
-                    text=text,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True,
-                )
-            except Exception as e:
-                log.error(f"Failed to send message: {e}")
-
         return len(new)
 
     except Exception as e:
@@ -321,7 +303,11 @@ async def scheduled_check(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     count = await _do_check(ctx)
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 View vacancies", callback_data="action:vacancies")]
+        [
+            InlineKeyboardButton("📋 Vacancies", callback_data="action:vacancies"),
+            InlineKeyboardButton("📊 Stats", callback_data="action:stats"),
+            InlineKeyboardButton("🏠 Home page", callback_data="action:start"),
+        ]
     ])
 
     if count:
