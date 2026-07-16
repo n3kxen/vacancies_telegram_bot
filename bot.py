@@ -33,6 +33,7 @@ import config
 import scraper
 import storage
 import time as time_module
+from models import Vacancy
 from prometheus_client import Counter, Gauge, start_http_server
 
 # Metrics
@@ -41,6 +42,9 @@ vacancies_stored_total  = Gauge("vacancies_stored_total", "Current vacancies in 
 checks_total            = Counter("checks_total", "Total scheduled checks run")
 check_errors_total      = Counter("check_errors_total", "Total errors during checks")
 last_check_timestamp     = Gauge("last_check_timestamp", "Unix timestamp of last check")
+
+# Scan time (5 min before notification)
+SCAN_TIME = config.SCAN_TIME
 
 # ──────────────────────────────────────────────
 # LOGGING
@@ -52,7 +56,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# How many vacancies to show per page in /vacancies
+# How many vacancies to show per page
 PAGE_SIZE = 5
 
 
@@ -94,7 +98,8 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await target.reply_text(
         f"👋 <b>CV.lv Vacancy Bot</b>\n\n"
         f"📂 Category: <code>{cats}</code>\n"
-        f"🕐 Daily check at: <b>{config.CHECK_TIME.strftime('%H:%M')}</b>",
+        f"🕐 Daily scan at: <b>{config.SCAN_TIME.strftime('%H:%M')}</b>\n"
+        f"📨 Notify at: <b>{config.CHECK_TIME.strftime('%H:%M')}</b>",
         parse_mode="HTML",
         reply_markup=keyboard,
     )
@@ -119,7 +124,8 @@ async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         f"👋 <b>CV.lv Vacancy Bot</b>\n\n"
         f"📂 Category: <code>{cats}</code>\n"
-        f"🕐 Checks daily at: <b>{config.CHECK_TIME.strftime('%H:%M')}</b>",
+        f"🕐 Scan daily at: <b>{config.SCAN_TIME.strftime('%H:%M')}</b>\n"
+        f"📨 Notify at: <b>{config.CHECK_TIME.strftime('%H:%M')}</b>",
         parse_mode="HTML",
         reply_markup=keyboard,
     )
@@ -133,7 +139,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await cmd_vacancies(update, ctx)
     elif query.data == "action:check":
         msg = await query.message.reply_text("🔍 Checking for new vacancies…")
-        count = await _do_check(ctx)
+        new_vacancies = await _do_check(ctx)
 
         reply_keyboard = InlineKeyboardMarkup([
             [
@@ -143,8 +149,18 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             ]
         ])
 
-        if count:
-            await msg.edit_text(f"✅ Found <b>{count}</b> new vacancies!", parse_mode="HTML", reply_markup=reply_keyboard)
+        if new_vacancies:
+            await msg.edit_text(f"✅ Found <b>{len(new_vacancies)}</b> new vacancies!", parse_mode="HTML", reply_markup=reply_keyboard)
+
+            # Send second message with paginated list of new vacancies
+            log.info(f"Sending new vacancies list, count: {len(new_vacancies)}")
+            total_pages = (len(new_vacancies) + PAGE_SIZE - 1) // PAGE_SIZE
+            await _send_new_vacancies_page(
+                send_fn=lambda text, **kw: query.message.reply_text(text, **kw),
+                vacancies=new_vacancies,
+                page=0,
+                total_pages=total_pages,
+            )
         else:
             await msg.edit_text("😴 No new vacancies found.", reply_markup=reply_keyboard)
     elif query.data == "action:stats":
@@ -192,7 +208,7 @@ async def cmd_vacancies(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_check(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually trigger a vacancy check."""
     msg = await update.message.reply_text("🔍 Checking for new vacancies…")
-    count = await _do_check(ctx)
+    new_vacancies = await _do_check(ctx)
 
     reply_keyboard = InlineKeyboardMarkup([
         [
@@ -202,8 +218,18 @@ async def cmd_check(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         ]
     ])
 
-    if count:
-        await msg.edit_text(f"✅ Found <b>{count}</b> new vacancies!", parse_mode="HTML", reply_markup=reply_keyboard)
+    if new_vacancies:
+        await msg.edit_text(f"✅ Found <b>{len(new_vacancies)}</b> new vacancies!", parse_mode="HTML", reply_markup=reply_keyboard)
+
+        # Send second message with paginated list of new vacancies
+        log.info(f"Sending new vacancies list, count: {len(new_vacancies)}")
+        total_pages = (len(new_vacancies) + PAGE_SIZE - 1) // PAGE_SIZE
+        await _send_new_vacancies_page(
+            send_fn=lambda text, **kw: update.message.reply_text(text, **kw),
+            vacancies=new_vacancies,
+            page=0,
+            total_pages=total_pages,
+        )
     else:
         await msg.edit_text("😴 No new vacancies found.", reply_markup=reply_keyboard)
 
@@ -251,20 +277,79 @@ async def _send_vacancy_page(send_fn, vacancies, page: int, total_pages: int) ->
     await send_fn(text, parse_mode="HTML", reply_markup=keyboard,
                   disable_web_page_preview=True)
 
+
+async def _send_new_vacancies_page(send_fn, vacancies: list[Vacancy], page: int, total_pages: int) -> None:
+    """Send a page of newly found vacancies with pagination."""
+    log.info(f"Sending new vacancies page {page+1}/{total_pages}, vacancies count: {len(vacancies)}")
+    start = page * PAGE_SIZE
+    chunk = vacancies[start : start + PAGE_SIZE]
+
+    lines = [f"🆕 <b>New Vacancies</b>  (page {page + 1}/{total_pages})\n"]
+    for i, v in enumerate(chunk, start=start + 1):
+        salary  = f" · 💰 {v.salary}"   if v.salary  else ""
+        expires = f"\n   ⏳ {v.expires}" if v.expires else ""
+
+        lines.append(
+            f"<b>{i}. {v.title}</b>\n"
+            f"   🏢 {v.company} · {salary}{expires}\n"
+            f"   🔗 <a href='{v.url}'>Open</a>"
+        )
+
+    text = "\n\n".join(lines)
+    # Build keyboard with newpage: prefix
+    buttons = []
+    if page > 0:
+        buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"newpage:{page - 1}"))
+    if page < total_pages - 1:
+        buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"newpage:{page + 1}"))
+    keyboard = InlineKeyboardMarkup([buttons]) if buttons else InlineKeyboardMarkup([[]])
+
+    await send_fn(text, parse_mode="HTML", reply_markup=keyboard,
+                  disable_web_page_preview=True)
+    log.info("New vacancies page sent successfully")
+
+
+async def on_new_page_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle Prev / Next button presses for new vacancies list."""
+    query = update.callback_query
+    await query.answer()
+
+    page = int(query.data.split(":")[1])
+    # Load new vacancies from temp.json (written during the last scan)
+    new_vacancies = storage.load_temp_vacancies()
+    total_pages = (len(new_vacancies) + PAGE_SIZE - 1) // PAGE_SIZE
+
+    if not new_vacancies:
+        await query.edit_message_text("No new vacancies from last scan.")
+        return
+
+    if page >= total_pages:
+        page = total_pages - 1
+
+    await _send_new_vacancies_page(
+        send_fn=lambda text, **kw: query.edit_message_text(text, **kw),
+        vacancies=new_vacancies,
+        page=page,
+        total_pages=total_pages,
+    )
+
 # ──────────────────────────────────────────────
 # CORE: CHECK & NOTIFY
 # ──────────────────────────────────────────────
 
-async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> int:
+async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> list[Vacancy]:
     """
-    Scrape cv.lv and save new vacancies.
-    Returns the number of new vacancies found.
+    Scrape cv.lv, save new vacancies to temp.json and the full store.
+    Returns the list of new vacancies found (also persisted to temp.json).
     """
     checks_total.inc()
     last_check_timestamp.set(time_module.time())
-    log.info("Running vacancy check…")
+    log.info("Running vacancy scan…")
 
     try:
+        # Clear temp.json at the start of every new scheduled scan
+        storage.clear_temp()
+
         loop = asyncio.get_event_loop()
         vacancies = await loop.run_in_executor(None, scraper.run)
 
@@ -276,31 +361,40 @@ async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> int:
         if not vacancies:
             log.info("No vacancies returned by scraper.")
             vacancies_stored_total.set(len(storage.load_all()))
-            return 0
+            return []
 
         new = storage.filter_new(vacancies)
         log.info(f"Total scraped: {len(vacancies)}, new: {len(new)}")
 
         if not new:
             vacancies_stored_total.set(len(storage.load_all()))
-            return 0
+            return []
 
-        storage.add_vacancies(new)
+        storage.add_vacancies(new)        # append to full store (vacancies.json)
         storage.mark_seen(new)
+        storage.save_temp(new)           # persist today's new vacancies to temp.json
         vacancies_found_total.inc(len(new))
         vacancies_stored_total.set(len(storage.load_all()))
 
-        return len(new)
+        return new
 
     except Exception as e:
         check_errors_total.inc()
         log.error(f"Check failed: {e}")
-        return 0
+        return []
 
 
-async def scheduled_check(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Job called by the scheduler at a specific time every day."""
-    count = await _do_check(ctx)
+async def scheduled_scan(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Job at 20:55 — scan + write temp.json (no Telegram message)."""
+    log.info("Scheduled scan started (20:55)")
+    await _do_check(ctx)
+    log.info("Scheduled scan finished — temp.json updated")
+
+
+async def scheduled_notify(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Job at 21:00 — read temp.json and send notification + list."""
+    log.info("Scheduled notify started (21:00)")
+    new_vacancies = storage.load_temp_vacancies()
 
     keyboard = InlineKeyboardMarkup([
         [
@@ -310,17 +404,27 @@ async def scheduled_check(ctx: ContextTypes.DEFAULT_TYPE) -> None:
         ]
     ])
 
-    if count:
+    if new_vacancies:
         await ctx.bot.send_message(
             chat_id=config.TELEGRAM_CHAT_ID,
-            text=f"✅ Check complete — found <b>{count}</b> new vacancies!",
+            text=f"✅ Found <b>{len(new_vacancies)}</b> new vacancies!",
             parse_mode="HTML",
             reply_markup=keyboard,
+        )
+
+        # Second message: paginated list of new vacancies from temp.json
+        log.info(f"Sending new vacancies list, count: {len(new_vacancies)}")
+        total_pages = (len(new_vacancies) + PAGE_SIZE - 1) // PAGE_SIZE
+        await _send_new_vacancies_page(
+            send_fn=lambda text, **kw: ctx.bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=text, **kw),
+            vacancies=new_vacancies,
+            page=0,
+            total_pages=total_pages,
         )
     else:
         await ctx.bot.send_message(
             chat_id=config.TELEGRAM_CHAT_ID,
-            text="😴 Check complete — no new vacancies found.",
+            text="😴 No new vacancies found.",
             reply_markup=keyboard,
         )
 
@@ -330,11 +434,11 @@ async def scheduled_check(ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # ──────────────────────────────────────────────
 
 async def on_startup(app: Application) -> None:
-    app.job_queue.run_daily(
-        scheduled_check,
-        time=config.CHECK_TIME,
-    )
-    log.info(f"Scheduler started. Daily check at {config.CHECK_TIME}")
+    # 20:55 — scan + write temp.json (no message)
+    app.job_queue.run_daily(scheduled_scan, time=config.SCAN_TIME)
+    # 21:00 — read temp.json, send notification + list
+    app.job_queue.run_daily(scheduled_notify, time=config.CHECK_TIME)
+    log.info(f"Scheduler started. Scan at {config.SCAN_TIME}, notify at {config.CHECK_TIME}")
 
 def main() -> None:
     start_http_server(8000)
@@ -356,6 +460,7 @@ def main() -> None:
     app.add_handler(CommandHandler("check",      cmd_check))
     app.add_handler(CommandHandler("stats",      cmd_stats))
     app.add_handler(CallbackQueryHandler(on_page_button, pattern=r"^page:\d+$"))
+    app.add_handler(CallbackQueryHandler(on_new_page_button, pattern=r"^newpage:\d+$"))
     app.add_handler(CallbackQueryHandler(on_button, pattern=r"^action:"))
 
     log.info("Bot started.")

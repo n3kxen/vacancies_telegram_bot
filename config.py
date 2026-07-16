@@ -18,9 +18,10 @@ except Exception:
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-# Time zone and daily check time
+# Time zone and daily schedule
 TIMEZONE   = pytz.timezone("Europe/Riga")
-CHECK_TIME = t(hour=21, minute=0, tzinfo=TIMEZONE)
+SCAN_TIME  = t(hour=16, minute=5, tzinfo=TIMEZONE)  # scrape + write temp.json
+CHECK_TIME = t(hour=16, minute=7,  tzinfo=TIMEZONE)  # send notification from temp.json
 
 # ── Scraper ────────────────────────────────────
 # Categories to search. Empty list = all vacancies.
@@ -35,7 +36,7 @@ CATEGORIES = ["INFORMATION_TECHNOLOGY"]
 LANGUAGE = "en"
 
 # How many result pages to process per check (20 vacancies per page)
-MAX_PAGES = 3
+MAX_PAGES = 1
 
 # Delay between requests in seconds (below 1.0 risks getting banned)
 DELAY = 1.5
@@ -49,6 +50,7 @@ USE_PLAYWRIGHT = False
 DATA_DIR = "data"
 OUTPUT_JSON = f"{DATA_DIR}/vacancies.json"
 SEEN_FILE   = f"{DATA_DIR}/seen.json"
+TEMP_JSON   = f"{DATA_DIR}/temp.json"
 
 # ── HTTP ───────────────────────────────────────
 HEADERS = {
