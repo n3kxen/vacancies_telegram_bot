@@ -8,7 +8,10 @@ import os
 import config
 from models import Vacancy
 
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# Default lifetime (in days) for a vacancy that has no expiry date from the site.
+DEFAULT_LIFETIME_DAYS = 21  # 3 weeks
 
 
 # ── Temp storage (temp.json) ─────────────────────
@@ -73,6 +76,26 @@ def add_vacancies(new: list[Vacancy]) -> None:
     existing_urls = {v.url for v in existing}
     to_add = [v for v in new if v.url not in existing_urls]
     if to_add:
+        today = datetime.utcnow().date()
+        for v in to_add:
+            # Stamp when it was first stored
+            if not v.added_date:
+                v.added_date = today.isoformat()
+            # Resolve expiry:
+            #   - if site gave a real expiry label, use it (parse to ISO);
+            #   - else default to 3 weeks after the added date.
+            if not v.expiry_date:
+                site_exp = _expiry_from_label(v.expires) if v.expires else None
+                if site_exp:
+                    v.expiry_date = site_exp.isoformat()
+                else:
+                    base = (
+                        datetime.fromisoformat(v.added_date).date()
+                        if v.added_date else today
+                    )
+                    v.expiry_date = (
+                        base + timedelta(days=DEFAULT_LIFETIME_DAYS)
+                    ).isoformat()
         save_all(existing + to_add)
 
 
@@ -137,27 +160,66 @@ def mark_seen(vacancies: list[Vacancy]) -> None:
 
 
 def remove_expired(vacancies: list[Vacancy]) -> list[Vacancy]:
-    """Remove vacancies whose expiry date has passed."""
-    today = datetime.today()
+    """Remove vacancies whose effective expiry date has passed."""
+    today = datetime.today().date()
     active = []
 
     for v in vacancies:
-        if not v.expires:
+        expiry = _effective_expiry(v)
+        if expiry is None:
+            # No date info at all — keep it (shouldn't normally happen)
             active.append(v)
             continue
-
-        # Parse date from "Beidzas: 22.06.2026"
-        try:
-            date_str = v.expires.split(": ")[-1].strip()
-            expiry = datetime.strptime(date_str, "%d.%m.%Y")
-            if expiry >= today:
-                active.append(v)
-            else:
-                print(f"  [expired] {v.title} — {v.expires}")
-        except ValueError:
-            active.append(v)  # if date can't be parsed, keep it
+        if expiry >= today:
+            active.append(v)
+        else:
+            print(f"  [expired] {v.title} — expires {expiry.isoformat()}")
 
     return active
+
+
+def _expiry_from_label(label: str):
+    """Parse a site expiry label like 'Beidzas: 22.06.2026' into a date, or None."""
+    if not label:
+        return None
+    try:
+        date_str = label.split(": ")[-1].strip()
+        return datetime.strptime(date_str, "%d.%m.%Y").date()
+    except (ValueError, IndexError):
+        return None
+
+
+def _effective_expiry(v: Vacancy):
+    """Resolve the vacancy's effective expiry date (date object or None).
+
+    Priority:
+      1. explicit expiry_date (ISO) if present
+      2. parsed site expiry label (expires: 'Beidzas: 22.06.2026')
+      3. 3 weeks after added_date
+      4. None if nothing is known
+    """
+    # 1) explicit ISO expiry_date
+    if v.expiry_date:
+        try:
+            return datetime.fromisoformat(v.expiry_date).date()
+        except ValueError:
+            pass
+    # 2) raw site label e.g. "Beidzas: 22.06.2026"
+    if v.expires:
+        try:
+            date_str = v.expires.split(": ")[-1].strip()
+            return datetime.strptime(date_str, "%d.%m.%Y").date()
+        except (ValueError, IndexError):
+            pass
+    # 3) default lifetime from added_date
+    if v.added_date:
+        try:
+            added = datetime.fromisoformat(v.added_date).date()
+            return added + timedelta(days=DEFAULT_LIFETIME_DAYS)
+        except ValueError:
+            pass
+    # 4) nothing known
+    return None
 
 def clean_expired() -> int:
     """Remove expired vacancies from the store. Returns count of removed."""

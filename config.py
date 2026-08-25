@@ -20,8 +20,8 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 # Time zone and daily schedule
 TIMEZONE   = pytz.timezone("Europe/Riga")
-SCAN_TIME  = t(hour=16, minute=5, tzinfo=TIMEZONE)  # scrape + write temp.json
-CHECK_TIME = t(hour=16, minute=7,  tzinfo=TIMEZONE)  # send notification from temp.json
+SCAN_TIME  = t(hour=20, minute=55, tzinfo=TIMEZONE)  # scrape + write temp.json
+CHECK_TIME = t(hour=21, minute=0,  tzinfo=TIMEZONE)  # send notification from temp.json
 
 # ── Scraper ────────────────────────────────────
 # Categories to search. Empty list = all vacancies.
@@ -43,7 +43,9 @@ DELAY = 1.5
 
 # True  — use Playwright (for JS-rendered pages, slower)
 # False — try requests first (fast), auto-switch to Playwright if needed
-USE_PLAYWRIGHT = False
+# cvmarket.lv filters by category only through its JS widget, so Playwright
+# is REQUIRED for the category filter to work.
+USE_PLAYWRIGHT = True
 
 # ── Storage ────────────────────────────────────
 # Files that store vacancies state

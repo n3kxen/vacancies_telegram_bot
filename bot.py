@@ -31,6 +31,7 @@ from telegram.ext import (
 
 import config
 import scraper
+import scraper_cvmarket
 import storage
 import time as time_module
 from models import Vacancy
@@ -96,9 +97,8 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await target.reply_text(
-        f"👋 <b>CV.lv Vacancy Bot</b>\n\n"
+        f"<b>💼 Vacancy Bot</b>\n\n"
         f"📂 Category: <code>{cats}</code>\n"
-        f"🕐 Daily scan at: <b>{config.SCAN_TIME.strftime('%H:%M')}</b>\n"
         f"📨 Notify at: <b>{config.CHECK_TIME.strftime('%H:%M')}</b>",
         parse_mode="HTML",
         reply_markup=keyboard,
@@ -122,9 +122,8 @@ async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     cats = ", ".join(config.CATEGORIES) if config.CATEGORIES else "all categories"
 
     await update.message.reply_text(
-        f"👋 <b>CV.lv Vacancy Bot</b>\n\n"
+        f"<b>💼 Vacancy Bot</b>\n\n"
         f"📂 Category: <code>{cats}</code>\n"
-        f"🕐 Scan daily at: <b>{config.SCAN_TIME.strftime('%H:%M')}</b>\n"
         f"📨 Notify at: <b>{config.CHECK_TIME.strftime('%H:%M')}</b>",
         parse_mode="HTML",
         reply_markup=keyboard,
@@ -262,12 +261,13 @@ async def _send_vacancy_page(send_fn, vacancies, page: int, total_pages: int) ->
 
     lines = [f"📋 <b>Vacancies</b>  (page {page + 1}/{total_pages})\n"]
     for i, v in enumerate(chunk, start=start + 1):
-        salary  = f" · 💰 {v.salary}"   if v.salary  else ""
-        expires = f"\n   ⏳ {v.expires}" if v.expires else ""
+        expires = f"   ⏳ Expires: {v.expiry_date}" if v.expiry_date else ""
 
         lines.append(
             f"<b>{i}. {v.title}</b>\n"
-            f"   🏢 {v.company} · {salary}{expires}\n"
+            f"   🏢 {v.company}\n"
+            + (f"   💶 {v.salary}\n" if v.salary else "")
+            + f"{expires}\n"
             f"   🔗 <a href='{v.url}'>Open</a>"
         )
 
@@ -286,12 +286,13 @@ async def _send_new_vacancies_page(send_fn, vacancies: list[Vacancy], page: int,
 
     lines = [f"🆕 <b>New Vacancies</b>  (page {page + 1}/{total_pages})\n"]
     for i, v in enumerate(chunk, start=start + 1):
-        salary  = f" · 💰 {v.salary}"   if v.salary  else ""
-        expires = f"\n   ⏳ {v.expires}" if v.expires else ""
+        expires = f"   ⏳ Expires: {v.expiry_date}" if v.expiry_date else ""
 
         lines.append(
             f"<b>{i}. {v.title}</b>\n"
-            f"   🏢 {v.company} · {salary}{expires}\n"
+            f"   🏢 {v.company}\n"
+            + (f"   💶 {v.salary}\n" if v.salary else "")
+            + f"{expires}\n"
             f"   🔗 <a href='{v.url}'>Open</a>"
         )
 
@@ -339,8 +340,9 @@ async def on_new_page_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
 
 async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> list[Vacancy]:
     """
-    Scrape cv.lv, save new vacancies to temp.json and the full store.
-    Returns the list of new vacancies found (also persisted to temp.json).
+    Scrape cv.lv and cvmarket.lv, merge, dedupe by (title, company)
+    keeping the cv.lv variant first, save new vacancies to temp.json and the
+    full store. Returns the list of new vacancies found.
     """
     checks_total.inc()
     last_check_timestamp.set(time_module.time())
@@ -351,7 +353,22 @@ async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> list[Vacancy]:
         storage.clear_temp()
 
         loop = asyncio.get_event_loop()
-        vacancies = await loop.run_in_executor(None, scraper.run)
+        # cv.lv first, then cvmarket.lv (cv.lv has priority on dedup)
+        cv_v        = await loop.run_in_executor(None, scraper.run)
+        cvmarket_v  = await loop.run_in_executor(None, scraper_cvmarket.run)
+
+        # Merge and dedupe by (title, company); keep first occurrence (cv.lv wins)
+        seen_keys: set[tuple[str, str]] = set()
+        merged: list[Vacancy] = []
+        for v in cv_v + cvmarket_v:
+            key = (v.title.strip().lower(), v.company.strip().lower())
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            merged.append(v)
+
+        vacancies = merged
+        log.info(f"Merged: cv.lv={len(cv_v)}, cvmarket.lv={len(cvmarket_v)}, after dedup={len(vacancies)}")
 
         removed = storage.clean_expired()
 
@@ -359,7 +376,7 @@ async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> list[Vacancy]:
             log.info(f"Removed {removed} expired vacancies")
 
         if not vacancies:
-            log.info("No vacancies returned by scraper.")
+            log.info("No vacancies returned by scrapers.")
             vacancies_stored_total.set(len(storage.load_all()))
             return []
 
