@@ -2,5 +2,5 @@ python-telegram-bot[job-queue]
 requests
 beautifulsoup4
 pytz
-prometheus-client
 python-dotenv
+playwright

@@ -11,3 +11,5 @@ data/
 __pycache__/
 *.pyc
 *.pyo
+
+lib/python3.14/site-packages/playwright/driver/node

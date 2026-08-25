@@ -35,14 +35,7 @@ import scraper_cvmarket
 import storage
 import time as time_module
 from models import Vacancy
-from prometheus_client import Counter, Gauge, start_http_server
 
-# Metrics
-vacancies_found_total   = Counter("vacancies_found_total", "Total new vacancies found")
-vacancies_stored_total  = Gauge("vacancies_stored_total", "Current vacancies in store")
-checks_total            = Counter("checks_total", "Total scheduled checks run")
-check_errors_total      = Counter("check_errors_total", "Total errors during checks")
-last_check_timestamp     = Gauge("last_check_timestamp", "Unix timestamp of last check")
 
 # Scan time (5 min before notification)
 SCAN_TIME = config.SCAN_TIME
@@ -344,8 +337,8 @@ async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> list[Vacancy]:
     keeping the cv.lv variant first, save new vacancies to temp.json and the
     full store. Returns the list of new vacancies found.
     """
-    checks_total.inc()
-    last_check_timestamp.set(time_module.time())
+    # metrics removed
+    # metrics removed
     log.info("Running vacancy scan…")
 
     try:
@@ -377,26 +370,26 @@ async def _do_check(ctx: ContextTypes.DEFAULT_TYPE) -> list[Vacancy]:
 
         if not vacancies:
             log.info("No vacancies returned by scrapers.")
-            vacancies_stored_total.set(len(storage.load_all()))
+            # metrics removed
             return []
 
         new = storage.filter_new(vacancies)
         log.info(f"Total scraped: {len(vacancies)}, new: {len(new)}")
 
         if not new:
-            vacancies_stored_total.set(len(storage.load_all()))
+            # metrics removed
             return []
 
         storage.add_vacancies(new)        # append to full store (vacancies.json)
         storage.mark_seen(new)
         storage.save_temp(new)           # persist today's new vacancies to temp.json
-        vacancies_found_total.inc(len(new))
-        vacancies_stored_total.set(len(storage.load_all()))
+        # metrics removed
+        # metrics removed
 
         return new
 
     except Exception as e:
-        check_errors_total.inc()
+        # metrics removed
         log.error(f"Check failed: {e}")
         return []
 
@@ -458,7 +451,7 @@ async def on_startup(app: Application) -> None:
     log.info(f"Scheduler started. Scan at {config.SCAN_TIME}, notify at {config.CHECK_TIME}")
 
 def main() -> None:
-    start_http_server(8000)
+    # metrics removed
     log.info("Metrics server started on :8000")
 
     if config.TELEGRAM_TOKEN == "YOUR_BOT_TOKEN":
