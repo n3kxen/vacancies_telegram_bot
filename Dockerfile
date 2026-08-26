@@ -8,8 +8,9 @@ WORKDIR /app
 # so reinstall only happens when requirements.txt actually changes)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-# Install Playwright dependencies for Chromium
+# Install Playwright dependencies and browsers for Chromium
 RUN playwright install-deps chromium
+RUN playwright install chromium
 
 # Copy the rest of the project files
 COPY . .
