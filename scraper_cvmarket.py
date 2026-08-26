@@ -93,6 +93,12 @@ def _apply_category(page) -> None:
     Open the category widget, pick CATEGORY_LABEL, apply, and submit the
     search form so the server returns a category-filtered result set.
     """
+    # Accept cookie consent to clear overlay so we can interact with the page
+    try:
+        page.locator("text=Accept").first.click(timeout=5000)
+    except Exception:
+        page.locator("button:has-text('Accept')").first.click(timeout=5000)
+        page.wait_for_timeout(1000)
     # Open the category selector
     page.locator("text=Meklēt pēc kategorijas").first.click()
     page.wait_for_timeout(1200)
