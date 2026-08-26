@@ -93,12 +93,20 @@ def _apply_category(page) -> None:
     Open the category widget, pick CATEGORY_LABEL, apply, and submit the
     search form so the server returns a category-filtered result set.
     """
-    # Accept cookie consent to clear overlay so we can interact with the page
+    # Accept cookie consent to clear overlay
+    # OneTrust uses #onetrust-accept-btn-handler
     try:
-        page.locator("text=Accept").first.click(timeout=5000)
+        page.locator("#onetrust-accept-btn-handler").first.click(timeout=5000)
     except Exception:
-        page.locator("button:has-text('Accept')").first.click(timeout=5000)
-        page.wait_for_timeout(1000)
+        # Fallback: try "Accept all" or generic accept button
+        try:
+            page.locator("text=Accept all").first.click(timeout=3000)
+        except Exception:
+            try:
+                page.locator("button:has-text('Accept')").first.click(timeout=3000)
+            except Exception:
+                pass  # no cookie banner present
+    page.wait_for_timeout(1000)
     # Open the category selector
     page.locator("text=Meklēt pēc kategorijas").first.click()
     page.wait_for_timeout(1200)
