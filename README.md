@@ -1,4 +1,4 @@
-# CV.lv Vacancy Bot
+# Vacancy Bot
 
 Telegram bot for tracking vacancies from cv.lv.
 
