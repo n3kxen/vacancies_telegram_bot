@@ -17,13 +17,15 @@ DEFAULT_LIFETIME_DAYS = 21  # 3 weeks
 # ── Temp storage (temp.json) ─────────────────────
 
 def load_temp() -> dict:
-    """Load temp data: {'vacancies': [...], 'count': N, 'date': 'YYYY-MM-DD'}."""
+    """Load temp data: {'vacancies': [...], 'count': N, 'date': 'dd.mm.yyyy'}."""
     try:
         with open(config.TEMP_JSON, encoding="utf-8") as f:
             content = f.read().strip()
             if not content:
                 return {"vacancies": [], "count": 0, "date": ""}
-            return json.loads(content)
+            data = json.loads(content)
+            # Keep date as-is (dd.mm.yyyy)
+            return data
     except FileNotFoundError:
         return {"vacancies": [], "count": 0, "date": ""}
 
@@ -33,7 +35,7 @@ def save_temp(vacancies: list[Vacancy]) -> None:
     data = {
         "vacancies": [v.to_dict() for v in vacancies],
         "count": len(vacancies),
-        "date": datetime.utcnow().date().isoformat(),
+        "date": datetime.utcnow().strftime("%d.%m.%Y"),
     }
     with open(config.TEMP_JSON, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -77,25 +79,26 @@ def add_vacancies(new: list[Vacancy]) -> None:
     to_add = [v for v in new if v.url not in existing_urls]
     if to_add:
         today = datetime.utcnow().date()
+        date_fmt = "%d.%m.%Y"
         for v in to_add:
             # Stamp when it was first stored
             if not v.added_date:
-                v.added_date = today.isoformat()
+                v.added_date = today.strftime(date_fmt)
             # Resolve expiry:
-            #   - if site gave a real expiry label, use it (parse to ISO);
+            #   - if site gave a real expiry label, use it (dd.mm.yyyy);
             #   - else default to 3 weeks after the added date.
             if not v.expiry_date:
                 site_exp = _expiry_from_label(v.expires) if v.expires else None
                 if site_exp:
-                    v.expiry_date = site_exp.isoformat()
+                    v.expiry_date = site_exp.strftime(date_fmt)
                 else:
                     base = (
-                        datetime.fromisoformat(v.added_date).date()
+                        datetime.strptime(v.added_date, date_fmt).date()
                         if v.added_date else today
                     )
                     v.expiry_date = (
                         base + timedelta(days=DEFAULT_LIFETIME_DAYS)
-                    ).isoformat()
+                    ).strftime(date_fmt)
         save_all(existing + to_add)
 
 
@@ -191,17 +194,19 @@ def _expiry_from_label(label: str):
 
 def _effective_expiry(v: Vacancy):
     """Resolve the vacancy's effective expiry date (date object or None).
+    Date format: dd.mm.yyyy.
 
     Priority:
-      1. explicit expiry_date (ISO) if present
+      1. explicit expiry_date (dd.mm.yyyy) if present
       2. parsed site expiry label (expires: 'Beidzas: 22.06.2026')
       3. 3 weeks after added_date
       4. None if nothing is known
     """
-    # 1) explicit ISO expiry_date
+    date_fmt = "%d.%m.%Y"
+    # 1) explicit expiry_date
     if v.expiry_date:
         try:
-            return datetime.fromisoformat(v.expiry_date).date()
+            return datetime.strptime(v.expiry_date, date_fmt).date()
         except ValueError:
             pass
     # 2) raw site label e.g. "Beidzas: 22.06.2026"
@@ -214,7 +219,7 @@ def _effective_expiry(v: Vacancy):
     # 3) default lifetime from added_date
     if v.added_date:
         try:
-            added = datetime.fromisoformat(v.added_date).date()
+            added = datetime.strptime(v.added_date, date_fmt).date()
             return added + timedelta(days=DEFAULT_LIFETIME_DAYS)
         except ValueError:
             pass
