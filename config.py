@@ -10,45 +10,32 @@ try:
     from dotenv import load_dotenv
     load_dotenv()
 except Exception:
-    # python-dotenv not installed; rely on environment variables
     pass
 
 # ── Telegram ───────────────────────────────────
-# Get token from @BotFather, chat_id from @userinfobot
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-# Time zone and daily schedule
 TIMEZONE   = pytz.timezone("Europe/Riga")
-SCAN_TIME  = t(hour=20, minute=55, tzinfo=TIMEZONE)  # scrape + write temp.json
-CHECK_TIME = t(hour=21, minute=0,  tzinfo=TIMEZONE)  # send notification from temp.json
+SCAN_TIME  = t(hour=20, minute=55, tzinfo=TIMEZONE)
+CHECK_TIME = t(hour=21, minute=0,  tzinfo=TIMEZONE)
 
 # ── Scraper ────────────────────────────────────
-# Categories to search. Empty list = all vacancies.
-# Available codes:
-#   INFORMATION_TECHNOLOGY, FINANCE_ACCOUNTING, MARKETING_PR,
-#   SALES, ADMINISTRATION, LOGISTICS, ENGINEERING, MEDICINE,
-#   CONSTRUCTION, EDUCATION, LAW, MANAGEMENT, CUSTOMER_SERVICE,
-#   DESIGN, HR, PRODUCTION, TRANSPORT, OTHER
 CATEGORIES = ["INFORMATION_TECHNOLOGY"]
-
-# Site language: "ru" | "lv" | "en"
 LANGUAGE = "en"
-
-# How many result pages to process per check (20 vacancies per page)
 MAX_PAGES = 1
 
-# Delay between requests in seconds (below 1.0 risks getting banned)
-DELAY = 1.5
+SEARCH_MODE = "keywords"  # 'category' | 'keywords' | 'both'
+KEYWORDS = ["dizain", "design"]             # e.g. ["dizain", "design"]
 
-# True  — use Playwright (for JS-rendered pages, slower)
-# False — try requests first (fast), auto-switch to Playwright if needed
-# cvmarket.lv filters by category only through its JS widget, so Playwright
-# is REQUIRED for the category filter to work.
+# ── cvmarket.lv category (IT) ──────────────────────
+CV_CATEGORY_ID   = 7
+CV_CATEGORY_LABEL = "Mediji / Dizains / Radošie darbi"
+
+DELAY = 1.5
 USE_PLAYWRIGHT = True
 
 # ── Storage ────────────────────────────────────
-# Files that store vacancies state
 DATA_DIR = "data"
 OUTPUT_JSON = f"{DATA_DIR}/vacancies.json"
 SEEN_FILE   = f"{DATA_DIR}/seen.json"
@@ -64,7 +51,6 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# ── Selectors ──────────────────────────────────
 CARD_SELECTORS = [
     "a[data-id]",
     ".vacancy-item",
@@ -72,4 +58,3 @@ CARD_SELECTORS = [
     "[class*='vacancy-card']",
     "article",
 ]
-

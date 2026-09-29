@@ -52,6 +52,27 @@ def load_temp_vacancies() -> list[Vacancy]:
     return [Vacancy(**d) for d in data.get("vacancies", [])]
 
 
+# ── Chat users (multi-user) ────────────────────
+CHAT_IDS_FILE = f"{config.DATA_DIR}/chat_ids.json"
+
+def load_chat_ids() -> list[int]:
+    try:
+        with open(CHAT_IDS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return [int(x) for x in data if str(x).isdigit()]
+    except Exception:
+        pass
+    return []
+
+def add_chat_id(chat_id: int) -> None:
+    ids = load_chat_ids()
+    s = str(chat_id)
+    if s not in [str(x) for x in ids]:
+        ids.append(chat_id)
+        with open(CHAT_IDS_FILE, "w", encoding="utf-8") as f:
+            json.dump(ids, f, ensure_ascii=False)
+
 # ── Vacancy store (vacancies.json) ─────────────
 
 def load_all() -> list[Vacancy]:

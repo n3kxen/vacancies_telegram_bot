@@ -11,12 +11,7 @@ from playwright.sync_api import sync_playwright
 
 BASE_URL = "https://www.cvmarket.lv"
 
-# Category IDs on cvmarket.lv and their human-readable labels (LV).
-# The category filter is JS-only: the server ignores category params on a
-# direct GET, so we must open the page in a real browser, pick the category
-# from the widget, and submit the form. We select by label to stay robust.
-CATEGORY_ID   = 8
-CATEGORY_LABEL = "Informācijas tehnoloģijas"  # id 8 — IT
+# Category IDs / labels now come from config.CV_CATEGORY_ID / config.CV_CATEGORY_LABEL
 
 
 # ──────────────────────────────────────────────
@@ -112,7 +107,7 @@ def _apply_category(page) -> None:
     page.wait_for_timeout(1200)
 
     # Pick the target category from the dropdown
-    page.locator(f"text={CATEGORY_LABEL}").first.click()
+    page.locator(f"text={config.CV_CATEGORY_LABEL}").first.click()
     page.wait_for_timeout(1200)
 
     # Confirm inside the widget (closes it)
@@ -155,8 +150,8 @@ def run() -> list[Vacancy]:
         page.wait_for_selector("a.jobad-url", timeout=30000)
         page.wait_for_timeout(2000)
 
-        if CATEGORY_ID:
-            print(f"  [cvmarket] Applying category filter: {CATEGORY_LABEL}")
+        if config.CV_CATEGORY_ID:
+            print(f"  [cvmarket] Applying category filter: {config.CV_CATEGORY_LABEL}")
             _apply_category(page)
 
         filtered_url = page.url

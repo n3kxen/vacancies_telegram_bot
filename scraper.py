@@ -15,22 +15,22 @@ from models import Vacancy
 # ──────────────────────────────────────────────
 
 def get_search_url(page: int = 0) -> str:
-    """Build the search results URL for a given page number.
-
-    Example (IT category, page 2):
-    https://cv.lv/en/search?limit=20&offset=20&categories[0]=INFORMATION_TECHNOLOGY
-    """
     offset = page * 20
     base = f"https://www.cv.lv/{config.LANGUAGE}/search?limit=20&offset={offset}"
 
-    if not config.CATEGORIES:
-        return base
+    params = []
 
-    category_params = "&".join(
-        f"categories%5B{i}%5D={cat}"
-        for i, cat in enumerate(config.CATEGORIES)
-    )
-    return f"{base}&{category_params}"
+    if config.SEARCH_MODE in ("category", "both") and config.CATEGORIES:
+        for i, cat in enumerate(config.CATEGORIES):
+            params.append(f"categories%5B{i}%5D={cat}")
+
+    if config.SEARCH_MODE in ("keywords", "both") and config.KEYWORDS:
+        for i, kw in enumerate(config.KEYWORDS):
+            params.append(f"keywords[{i}]={kw}")
+
+    if params:
+        return f"{base}&{'&'.join(params)}"
+    return base
 
 
 def get_text(tag) -> str:

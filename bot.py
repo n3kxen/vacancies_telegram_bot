@@ -89,9 +89,25 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if target is None:
         return
 
+    user_name = (update.effective_user.first_name if update.effective_user else "пользователь")
+    greeting = f"👋 Привет, <b>{user_name}</b>!"
+
+    mode_text = f"📂 Mode: <code>{config.SEARCH_MODE}</code>"
+    if config.SEARCH_MODE == "keywords" and config.KEYWORDS:
+        mode_text += f" | keywords: <code>{', '.join(config.KEYWORDS)}</code>"
+    elif config.SEARCH_MODE == "both" and config.CATEGORIES:
+        mode_text += f" | cat: <code>{', '.join(config.CATEGORIES)}</code>"
+
+    # Save chat id for multi-user notify
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    if chat_id is not None:
+        storage.add_chat_id(chat_id)
+        log.info(f"Registered chat_id={chat_id}")
+
     await target.reply_text(
         f"<b>💼 Vacancy Bot</b>\n\n"
-        f"📂 Category: <code>{cats}</code>\n"
+        f"{greeting}\n"
+        f"{mode_text}\n"
         f"📨 Notify at: <b>{config.CHECK_TIME.strftime('%H:%M')}</b>",
         parse_mode="HTML",
         reply_markup=keyboard,
@@ -414,29 +430,37 @@ async def scheduled_notify(ctx: ContextTypes.DEFAULT_TYPE) -> None:
         ]
     ])
 
-    if new_vacancies:
-        await ctx.bot.send_message(
-            chat_id=config.TELEGRAM_CHAT_ID,
-            text=f"✅ Found <b>{len(new_vacancies)}</b> new vacancies!",
-            parse_mode="HTML",
-            reply_markup=keyboard,
-        )
+    ids = storage.load_chat_ids()
+    # Fallback to legacy single user
+    if not ids and config.TELEGRAM_CHAT_ID and config.TELEGRAM_CHAT_ID != "YOUR_BOT_TOKEN":
+        ids = [int(config.TELEGRAM_CHAT_ID)]
 
-        # Second message: paginated list of new vacancies from temp.json
-        log.info(f"Sending new vacancies list, count: {len(new_vacancies)}")
+    if new_vacancies:
+        msg_text = f"✅ Found <b>{len(new_vacancies)}</b> new vacancies!"
+        for cid in ids:
+            try:
+                await ctx.bot.send_message(chat_id=cid, text=msg_text, parse_mode="HTML", reply_markup=keyboard)
+            except Exception as e:
+                log.warning(f"Failed to notify {cid}: {e}")
+        # Send paginated list to each
+        log.info(f"Sending new vacancies list to {len(ids)} users, count: {len(new_vacancies)}")
         total_pages = (len(new_vacancies) + PAGE_SIZE - 1) // PAGE_SIZE
-        await _send_new_vacancies_page(
-            send_fn=lambda text, **kw: ctx.bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=text, **kw),
-            vacancies=new_vacancies,
-            page=0,
-            total_pages=total_pages,
-        )
+        for cid in ids:
+            try:
+                await _send_new_vacancies_page(
+                    send_fn=lambda text, **kw: ctx.bot.send_message(chat_id=cid, text=text, **kw),
+                    vacancies=new_vacancies,
+                    page=0,
+                    total_pages=total_pages,
+                )
+            except Exception as e:
+                log.warning(f"Failed to send list to {cid}: {e}")
     else:
-        await ctx.bot.send_message(
-            chat_id=config.TELEGRAM_CHAT_ID,
-            text="😴 No new vacancies found.",
-            reply_markup=keyboard,
-        )
+        for cid in ids:
+            try:
+                await ctx.bot.send_message(chat_id=cid, text="😴 No new vacancies found.", reply_markup=keyboard)
+            except Exception as e:
+                log.warning(f"Failed to notify {cid}: {e}")
 
 
 # ──────────────────────────────────────────────
